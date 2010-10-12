@@ -13,7 +13,7 @@ static const int DEBUG = 0;
 
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static int (*orig_close)(int fd);
-static void *dlhandle;
+static void *dlhandle = NULL;
 
 /**
  *
