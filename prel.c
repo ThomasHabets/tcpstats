@@ -37,7 +37,7 @@ send_data(const struct tcp_info *ti,
                 }
                 return;
         }
-        memcpy(buf, ti, sizeof(ti));
+        memcpy(buf, ti, sizeof(struct tcp_info));
         memcpy(buf + sizeof(struct tcp_info), peer, peerlen);
         if (-1 == sendto(fd,
                          buf,
@@ -94,6 +94,14 @@ close(int fd)
             && !getpeername(fd,
                             (struct sockaddr*)&ss,
                             &sslen)) {
+                if (DEBUG) {
+                        fprintf(stderr, "tcpstats: sizeof %d\n", sizeof(ti));
+                        fprintf(stderr, "tcpstats: options: %.2x\n", ti.tcpi_options);
+                        fprintf(stderr, "tcpstats: snd_wscale: %.1x\n", ti.tcpi_snd_wscale);
+                        fprintf(stderr, "tcpstats: rcv_wscale: %.1x\n", ti.tcpi_rcv_wscale);
+                        fprintf(stderr, "tcpstats: rto: %.8x\n", ti.tcpi_rto);
+                        fprintf(stderr, "tcpstats: pmtu: %.8x\n", ti.tcpi_pmtu);
+                }
                 send_data(&ti, (struct sockaddr*)&ss, sslen);
         }
 
