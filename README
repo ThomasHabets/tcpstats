@@ -1,3 +1,4 @@
+http://linuxgazette.net/136/pfeiffer.html
 
 $ make
 gcc -fPIC -rdynamic -g -Wall -c prel.c

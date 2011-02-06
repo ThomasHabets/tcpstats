@@ -8,12 +8,15 @@
 #include<netinet/tcp.h>
 #include<arpa/inet.h>
 
+#include"data.h"
+
 static const int PORT = 12346;
 static const int DEBUG = 0;
 
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static int (*orig_close)(int fd);
 static void *dlhandle = NULL;
+static uint64_t serial = 0;
 
 /**
  *
@@ -24,12 +27,16 @@ send_data(const struct tcp_info *ti,
 {
         int fd;
         struct sockaddr_in sa;
-        char buf[sizeof(struct tcp_info) + peerlen];
+        struct tcp_info tcpi;
+
+        memcpy(&tcpi, ti, sizeof(tcpi));
+        tcpi.tcpi_rtt = htonl(tcpi.tcpi_rtt);
+        tcpi.tcpi_rto = htonl(tcpi.tcpi_rto);
 
         memset(&sa, 0, sizeof(sa));
         sa.sin_family = AF_INET;
         sa.sin_port = htons(PORT);
-        sa.sin_addr.s_addr = inet_addr("127.0.0.1");
+        sa.sin_addr.s_addr = inet_addr("224.1.2.3");
 
         if (-1 == (fd = socket(PF_INET, SOCK_DGRAM, 0))) {
                 if (DEBUG) {
@@ -37,11 +44,64 @@ send_data(const struct tcp_info *ti,
                 }
                 return;
         }
-        memcpy(buf, ti, sizeof(struct tcp_info));
-        memcpy(buf + sizeof(struct tcp_info), peer, peerlen);
+
+        char buf[1024];
+        char tmpbuf[1024];
+        char *p = buf;
+#pragma pack(1)
+        struct tlv {
+                uint16_t type;
+                uint16_t length;
+                char val[1];
+        };
+#pragma pack()
+        const int HEAD_SIZE = 4;
+        struct tlv *pt;
+
+        // version
+        pt = (void*)p;
+        pt->type = htons(DATA_VERSION);
+        pt->length = htons(1);
+        pt->val[0] = 1;
+        p += HEAD_SIZE + htons(pt->length);
+
+        // serial
+        {
+                uint64_t s = htonl(serial);
+                pt = (void*)p;
+                pt->type = htons(DATA_SERIAL);
+                pt->length = htons(8);
+                memcpy(pt->val, &s, 8);
+                p += HEAD_SIZE + htons(pt->length);
+        }
+
+        // peer v4 address
+        if (peer->sa_family == AF_INET) {
+                struct sockaddr_in *sin = (void*)peer;
+                pt = (void*)p;
+                pt->type = htons(DATA_PEERV4);
+                pt->length = htons(4);
+                memcpy(pt->val, &sin->sin_addr, 4);
+                p += HEAD_SIZE + htons(pt->length);
+        }
+
+        // RTT
+        pt = (void*)p;
+        pt->type = htons(DATA_RTT);
+        pt->length = htons(4);
+        memcpy(pt->val, &tcpi.tcpi_rtt, 4);
+        p += HEAD_SIZE + htons(pt->length);
+
+        // RTO
+        pt = (void*)p;
+        pt->type = htons(DATA_RTO);
+        pt->length = htons(4);
+        memcpy(pt->val, &tcpi.tcpi_rto, 4);
+        p += HEAD_SIZE + htons(pt->length);
+
         if (-1 == sendto(fd,
                          buf,
-                         sizeof(struct tcp_info) + peerlen,
+                         p - buf,
                          0,
                          (struct sockaddr*)&sa,
                          sizeof(sa))) {
@@ -49,6 +109,7 @@ send_data(const struct tcp_info *ti,
                         fprintf(stderr, "tcpstats: sendto(): %m\n");
                 }
         }
+
         orig_close(fd);
 }
 
@@ -73,6 +134,7 @@ close(int fd)
 
         /* get orig_close pointer */
         pthread_mutex_lock(&mutex);
+        serial++;
         if (!dlhandle) {
                 dlhandle = dlopen("/lib/libc.so.6", RTLD_LAZY);
                 if (!dlhandle) {
